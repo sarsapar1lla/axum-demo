@@ -1,0 +1,37 @@
+services: 
+  localstack:
+    container_name: localstack
+    image: localstack/localstack:latest
+    hostname: localstack
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - SERVICES=s3,sqs
+    ports: 
+      - "4566-4583:4566-4583"
+    volumes: 
+      - /localstack:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./samples/event.json:/tmp/events/event.json
+      - ./docker/aws/:/etc/localstack/init/ready.d
+    healthcheck:
+      test: ["CMD", "awslocal", "s3api", "wait", "bucket-exists", "--bucket", "test-bucket"]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 10s
+
+  app:
+    container_name: app
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - LOCALSTACK_ENDPOINT=http://localstack:4566
+      - INPUT_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/test-queue
+      - OUTPUT_BUCKET_NAME=test-bucket
+
+volumes:
+  localstack:
