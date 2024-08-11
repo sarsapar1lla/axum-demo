@@ -1,0 +1,16 @@
+{
+  "Records": [
+    {
+      "eventTime": "2024-08-10T12:53:00.000Z",
+      "eventName": "S3:ObjectCreated",
+      "s3": {
+        "bucket": {
+          "name": "test-bucket"
+        },
+        "object": {
+          "key": "input/1234.json"
+        }
+      }
+    }
+  ]
+}
