@@ -3,7 +3,7 @@ use std::{
     sync::Mutex,
 };
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Partition {
@@ -31,13 +31,15 @@ impl Partition {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Entry {
     partition: Partition,
+    created: DateTime<Utc>,
     json: String,
 }
 
 impl Entry {
-    pub fn new(partition: Partition, json: &str) -> Self {
+    pub fn new(partition: Partition, created: &DateTime<Utc>, json: &str) -> Self {
         Self {
             partition,
+            created: *created,
             json: String::from(json),
         }
     }
@@ -46,6 +48,7 @@ impl Entry {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Batch {
     partition: Partition,
+    oldest_record: DateTime<Utc>,
     records: Vec<String>,
 }
 
@@ -54,8 +57,16 @@ impl Batch {
         &self.partition
     }
 
+    pub fn oldest_record(&self) -> &DateTime<Utc> {
+        &self.oldest_record
+    }
+
     pub fn records(&self) -> &[String] {
         &self.records
+    }
+
+    pub fn record_count(&self) -> usize {
+        self.records.len()
     }
 }
 
@@ -93,14 +104,18 @@ impl Store for StoreImpl {
         let mut batches_lock = self.batches.lock().unwrap();
 
         for entry in entries {
-            batches_lock
+            let batch = batches_lock
                 .entry(entry.partition)
                 .or_insert_with_key(|key| Batch {
                     partition: key.clone(),
+                    oldest_record: Utc::now(),
                     records: Vec::new(),
-                })
-                .records
-                .push(entry.json);
+                });
+
+            batch.records.push(entry.json);
+            if entry.created < batch.oldest_record {
+                batch.oldest_record = entry.created;
+            };
         }
 
         batches_lock.values().cloned().collect()
