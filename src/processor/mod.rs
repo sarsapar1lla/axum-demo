@@ -38,25 +38,29 @@ impl NotificationProcessorImpl {
 impl NotificationProcessor for NotificationProcessorImpl {
     async fn process(&self, notification: &Notification) {
         let bytes = self.extractor.extract(notification).await;
-        let event = self.deserialise(bytes);
+        let event = NotificationProcessorImpl::deserialise(&bytes);
         let flattened = transform::apply(&event, notification);
-        let json = self.serialise(flattened);
-        let entry = self.entry(event.request().source(), notification.created(), json);
+        let json = NotificationProcessorImpl::serialise(&flattened);
+        let entry = NotificationProcessorImpl::entry(
+            event.request().source(),
+            notification.created(),
+            &json,
+        );
         self.batch_store.add(entry);
     }
 }
 
 impl NotificationProcessorImpl {
-    fn deserialise(&self, bytes: Vec<u8>) -> Event {
-        serde_json::from_slice(&bytes).unwrap()
+    fn deserialise(bytes: &[u8]) -> Event {
+        serde_json::from_slice(bytes).unwrap()
     }
 
-    fn serialise(&self, flattened: HashMap<String, String>) -> String {
-        serde_json::to_string(&flattened).unwrap()
+    fn serialise(flattened: &HashMap<String, String>) -> String {
+        serde_json::to_string(flattened).unwrap()
     }
 
-    fn entry(&self, source: &str, created: &DateTime<Utc>, json: String) -> batch::Entry {
+    fn entry(source: &str, created: &DateTime<Utc>, json: &str) -> batch::Entry {
         let partition = batch::Partition::new(source, created.date_naive());
-        batch::Entry::new(partition, &json)
+        batch::Entry::new(partition, json)
     }
 }

@@ -4,9 +4,8 @@ use axum::{routing::get, Router};
 use deleter::SqsMessageDeleter;
 use handler::EventHandler;
 use processor::NotificationProcessorImpl;
-use schedule::{schedule_batch_writer, schedule_handler};
 use supplier::SqsSupplier;
-use tokio_util::sync::CancellationToken;
+use tokio::sync::broadcast::{Receiver, Sender};
 use writer::{BatchWriter, S3Writer};
 
 mod batch;
@@ -15,6 +14,7 @@ mod handler;
 mod model;
 mod processor;
 mod schedule;
+mod shutdown;
 mod supplier;
 mod writer;
 
@@ -59,15 +59,23 @@ async fn main() {
 
     let writer = S3Writer::new(s3_client, &output_bucket);
     let batch_writer = Arc::new(BatchWriter::new(batch_store, Box::new(writer)));
-    let shutdown_token = CancellationToken::new();
 
-    schedule_handler(handler, shutdown_token.child_token());
-    schedule_batch_writer(batch_writer, shutdown_token.child_token());
+    let (shutdown_send, _): (Sender<bool>, Receiver<bool>) = tokio::sync::broadcast::channel(1);
+    let handler_task = schedule::handler(handler, shutdown_send.subscribe());
+    let writer_task = schedule::batch_writer(batch_writer.clone(), shutdown_send.subscribe());
 
     let app = Router::new().route("/ping", get(ping));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown::hook(
+            shutdown_send,
+            batch_writer,
+            handler_task,
+            writer_task,
+        ))
+        .await
+        .unwrap();
 }
 
 async fn ping() -> &'static str {

@@ -1,40 +1,43 @@
 use std::{sync::Arc, time::Duration};
 
-use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
+use tokio::{sync::broadcast::Receiver, task::JoinHandle};
 
 use crate::{handler::EventHandler, writer::BatchWriter};
 
-pub fn schedule_handler(handler: EventHandler, token: CancellationToken) {
+pub fn handler(handler: EventHandler, mut shutdown: Receiver<bool>) -> JoinHandle<()> {
     tokio::spawn(async move {
         tokio::select! {
-            _ = token.cancelled() => {}
-            _ = handle_events(handler) => {}
+            _ = shutdown.recv() => {}
+            () = handle_events(handler) => {}
         }
-    });
+    })
 }
 
-pub fn schedule_batch_writer(batch_writer: Arc<BatchWriter>, token: CancellationToken) {
+pub fn batch_writer(
+    batch_writer: Arc<BatchWriter>,
+    mut shutdown: Receiver<bool>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         tokio::select! {
-            _ = token.cancelled() => {
-                batch_writer.flush().await;
-            }
-            _ = write_batches(batch_writer.clone()) => {}
+            _ = shutdown.recv() => {}
+            () = write_batches(batch_writer) => {}
         }
-    });
+    })
 }
 
 async fn handle_events(handler: EventHandler) {
+    let mut interval = tokio::time::interval(Duration::from_millis(5_000));
     loop {
+        interval.tick().await;
         handler.handle().await;
-        tokio::time::sleep_until(Instant::now() + Duration::from_millis(5000)).await;
     }
 }
 
 async fn write_batches(batch_writer: Arc<BatchWriter>) {
+    let mut interval = tokio::time::interval(Duration::from_millis(10_000));
     loop {
+        interval.tick().await;
+        tracing::info!("Writing on a schedule");
         batch_writer.write().await;
-        tokio::time::sleep_until(Instant::now() + Duration::from_millis(10_000)).await;
     }
 }

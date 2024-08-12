@@ -22,7 +22,7 @@ impl BatchWriter {
 
     pub async fn write(&self) {
         for batch in self.batch_store.batches() {
-            if self.is_ready(&batch) {
+            if BatchWriter::is_ready(&batch) {
                 self.writer.write(&batch).await;
                 self.batch_store.delete_batch(batch.partition());
             }
@@ -30,12 +30,13 @@ impl BatchWriter {
     }
 
     pub async fn flush(&self) {
+        tracing::info!("Writing all batches prior to shutdown...");
         for batch in self.batch_store.batches() {
             self.writer.write(&batch).await;
         }
     }
 
-    fn is_ready(&self, _batch: &Batch) -> bool {
+    fn is_ready(_batch: &Batch) -> bool {
         // Implement logic
         true
     }

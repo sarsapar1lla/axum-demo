@@ -92,7 +92,7 @@ impl Store for StoreImpl {
 
         let mut batches_lock = self.batches.lock().unwrap();
 
-        for entry in entries.into_iter() {
+        for entry in entries {
             batches_lock
                 .entry(entry.partition)
                 .or_insert_with_key(|key| Batch {
