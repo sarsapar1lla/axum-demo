@@ -1,8 +1,13 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+use chrono::{TimeDelta, Utc};
 
 use crate::batch::{self, Batch};
 
 use super::Writer;
+
+const MAX_BATCH_SIZE: usize = 1;
+static MAX_BATCH_AGE: LazyLock<TimeDelta> = LazyLock::new(|| TimeDelta::minutes(60));
 
 pub struct BatchWriter {
     batch_store: Arc<dyn batch::Store + Sync + Send>,
@@ -36,8 +41,27 @@ impl BatchWriter {
         }
     }
 
-    fn is_ready(_batch: &Batch) -> bool {
-        // Implement logic
-        true
+    fn is_ready(batch: &Batch) -> bool {
+        if batch.record_count() >= MAX_BATCH_SIZE {
+            tracing::info!(
+                "Batch '{:?}' size {} exceeds maximum {}",
+                batch.partition(),
+                batch.record_count(),
+                MAX_BATCH_SIZE
+            );
+            return true;
+        };
+
+        let batch_age = Utc::now() - batch.oldest_record();
+        if batch_age >= *MAX_BATCH_AGE {
+            tracing::info!(
+                "Batch '{:?}' age {} exceeds maximum {}",
+                batch.partition(),
+                batch_age.num_minutes(),
+                MAX_BATCH_AGE.num_minutes()
+            );
+            return true;
+        };
+        false
     }
 }

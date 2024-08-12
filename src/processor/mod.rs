@@ -61,6 +61,6 @@ impl NotificationProcessorImpl {
 
     fn entry(source: &str, created: &DateTime<Utc>, json: &str) -> batch::Entry {
         let partition = batch::Partition::new(source, created.date_naive());
-        batch::Entry::new(partition, json)
+        batch::Entry::new(partition, created, json)
     }
 }
