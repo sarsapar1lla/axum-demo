@@ -1,11 +1,14 @@
-use std::{env, sync::Arc};
+use std::{env, sync::Arc, time::Duration};
 
-use axum::{routing::get, Router};
+use axum::{routing::get, Json, Router};
 use deleter::SqsMessageDeleter;
 use handler::EventHandler;
 use processor::NotificationProcessorImpl;
 use supplier::SqsSupplier;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::{
+    net::TcpListener,
+    time::{interval_at, Instant},
+};
 use writer::{BatchWriter, S3Writer};
 
 mod batch;
@@ -58,21 +61,36 @@ async fn main() {
     let handler = EventHandler::new(Arc::new(supplier), Arc::new(processor), Arc::new(deleter));
 
     let writer = S3Writer::new(s3_client, &output_bucket);
-    let batch_writer = Arc::new(BatchWriter::new(batch_store, Box::new(writer)));
+    let batch_writer = Arc::new(BatchWriter::new(batch_store.clone(), Box::new(writer)));
 
-    let (shutdown_send, _): (Sender<bool>, Receiver<bool>) = tokio::sync::broadcast::channel(1);
-    let handler_task = schedule::handler(handler, shutdown_send.subscribe());
-    let writer_task = schedule::batch_writer(batch_writer.clone(), shutdown_send.subscribe());
+    let (shutdown_send, _) = tokio::sync::broadcast::channel::<()>(1);
+    let handler_task = schedule::task(
+        Arc::new(handler),
+        interval_at(Instant::now(), Duration::from_millis(5_000)),
+        shutdown_send.subscribe(),
+    );
+    let writer_task = schedule::task(
+        batch_writer.clone(),
+        interval_at(
+            Instant::now() + Duration::from_millis(2_000),
+            Duration::from_millis(20_000),
+        ),
+        shutdown_send.subscribe(),
+    );
+    let background_tasks = vec![handler_task, writer_task];
 
-    let app = Router::new().route("/ping", get(ping));
+    let summariser = Arc::new(batch::Summariser::new(batch_store));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    let app = Router::new()
+        .route("/ping", get(ping))
+        .route("/batch/summary", get(move || summary(summariser)));
+
+    let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown::hook(
             shutdown_send,
             batch_writer,
-            handler_task,
-            writer_task,
+            background_tasks,
         ))
         .await
         .unwrap();
@@ -80,4 +98,9 @@ async fn main() {
 
 async fn ping() -> &'static str {
     "pong"
+}
+
+async fn summary(summariser: Arc<batch::Summariser>) -> Json<Vec<batch::Summary>> {
+    let summaries = summariser.summary();
+    Json(summaries)
 }

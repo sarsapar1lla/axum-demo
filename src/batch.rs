@@ -5,6 +5,10 @@ use std::{
 
 use chrono::{DateTime, NaiveDate, Utc};
 
+pub use summary::{Summariser, Summary};
+
+mod summary;
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Partition {
     source: String,
