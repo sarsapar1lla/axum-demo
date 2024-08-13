@@ -27,7 +27,7 @@ impl BatchWriter {
 
     pub async fn write(&self) {
         for batch in self.batch_store.batches() {
-            if BatchWriter::is_ready(&batch) {
+            if is_ready(&batch) {
                 self.writer.write(&batch).await;
                 self.batch_store.delete_batch(batch.partition());
             }
@@ -40,28 +40,28 @@ impl BatchWriter {
             self.writer.write(&batch).await;
         }
     }
+}
 
-    fn is_ready(batch: &Batch) -> bool {
-        if batch.record_count() >= MAX_BATCH_SIZE {
-            tracing::info!(
-                "Batch '{:?}' size {} exceeds maximum {}",
-                batch.partition(),
-                batch.record_count(),
-                MAX_BATCH_SIZE
-            );
-            return true;
-        };
+fn is_ready(batch: &Batch) -> bool {
+    if batch.record_count() >= MAX_BATCH_SIZE {
+        tracing::info!(
+            "Batch '{:?}' size {} exceeds maximum {}",
+            batch.partition(),
+            batch.record_count(),
+            MAX_BATCH_SIZE
+        );
+        return true;
+    };
 
-        let batch_age = Utc::now() - batch.oldest_record();
-        if batch_age >= *MAX_BATCH_AGE {
-            tracing::info!(
-                "Batch '{:?}' age {} exceeds maximum {}",
-                batch.partition(),
-                batch_age.num_minutes(),
-                MAX_BATCH_AGE.num_minutes()
-            );
-            return true;
-        };
-        false
-    }
+    let batch_age = Utc::now() - batch.oldest_record();
+    if batch_age >= *MAX_BATCH_AGE {
+        tracing::info!(
+            "Batch '{:?}' age {} exceeds maximum {}",
+            batch.partition(),
+            batch_age.num_minutes(),
+            MAX_BATCH_AGE.num_minutes()
+        );
+        return true;
+    };
+    false
 }

@@ -5,21 +5,19 @@ use tokio::{sync::broadcast::Sender, task::JoinHandle};
 use crate::writer::BatchWriter;
 
 pub async fn hook(
-    shutdown_sender: Sender<bool>,
+    shutdown_sender: Sender<()>,
     batch_writer: Arc<BatchWriter>,
-    handler_task: JoinHandle<()>,
-    writer_task: JoinHandle<()>,
+    background_tasks: Vec<JoinHandle<()>>,
 ) {
     signal().await;
 
-    tracing::info!("Sending shutdown signal");
-    shutdown_sender.send(true).unwrap();
+    tracing::info!("Received shutdown signal. Notifying background tasks");
+    shutdown_sender.send(()).unwrap();
 
-    tracing::info!("Awaiting shutdown of event handler task");
-    handler_task.await.unwrap();
-
-    tracing::info!("Awaiting shutdown of batch writer task");
-    writer_task.await.unwrap();
+    tracing::info!("Awaiting end of background tasks");
+    for task in background_tasks {
+        task.await.unwrap();
+    }
     batch_writer.flush().await;
 }
 
